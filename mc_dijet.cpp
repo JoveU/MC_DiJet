@@ -8,19 +8,20 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <random>
+//#include <random>
 
-/*
+
 #include <boost/random.hpp>
 #include <boost/generator_iterator.hpp>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
 #include <boost/math/special_functions/factorials.hpp>
-*/
+
 using namespace std;
 //using namespace blitz;
+//using namespace blitz::random;
 
-typedef mt19937 RNGType;
+typedef boost::random::mt19937 RNGType;
 const size_t Y_size=21, Pt_size=178;
 const size_t number_of_events=1000000;
 const double sqrts=100.0;
@@ -179,7 +180,7 @@ double TMD::get_Xsection(double Pt, double qt, double z, double phi)
         prefactor * ( z*(1.0-z) ) * 8.0 * ( epsf2*pow(Pt,2) ) / pow(Pt*Pt+epsf2, 4) *
         ( xG + cos (2.0*phi) * xH );
 
-    return Conversion_prefactor * (transverse_Xsection + long_Xsection) ;
+    return Pt*qt*Conversion_prefactor * (transverse_Xsection + long_Xsection) ;
 }
 
 
@@ -228,19 +229,52 @@ class DiJetEvent
 {
     RNGType *rng;
     TMD *Xsection;
-    std::uniform_real_distribution<> *z_sample;
-    std::uniform_real_distribution<> *Pt_sample;
-    std::uniform_real_distribution<> *qt_sample;
-    std::uniform_real_distribution<> *phi_sample;
-    std::uniform_real_distribution<> *r_sample;
+    boost::random::uniform_real_distribution<> *z_sample;
+    boost::random::uniform_real_distribution<> *Pt_sample;
+    boost::random::uniform_real_distribution<> *qt_sample;
+    boost::random::uniform_real_distribution<> *phi_sample;
+    boost::random::uniform_real_distribution<> *r_sample;
 
 		static double f_minimize(const gsl_vector * x, void * params);
     double z_min, z_max, qt_min, qt_max, x0, Xsmax;
 public:
     DiJetEvent(TMD* Xs);
     vector<double>  operator() (void);
+		vector<double> k1k2f(vector<double>  params);
 
 };
+
+
+vector<double> DiJetEvent::k1k2f(vector<double>  params)
+{
+	double Pt = params.at(0);  
+	double qt = params.at(1);
+	double z = params.at(2); 
+	double phi = params.at(3);
+	double phi_pt = params.at(4);
+	
+	double Ptx = Pt * cos(phi_pt);
+	double Pty = Pt * sin(phi_pt);
+
+	double qtx = qt * cos(phi_pt+phi);
+	double qty = qt * sin(phi_pt+phi);
+	
+	double k1x =  Ptx + z*qtx;
+	double k1y =  Pty + z*qty;
+
+	double k2x =  -Ptx + (1.0-z)*qtx;
+	double k2y =  -Pty + (1.0-z)*qty;
+
+	vector<double> k1k2; 
+	k1k2.push_back(k1x);
+	k1k2.push_back(k1y);
+	k1k2.push_back(k2x);
+	k1k2.push_back(k2y);
+
+	return k1k2; 
+}
+
+
 
 vector<double> DiJetEvent::operator() (void)
 {
@@ -248,6 +282,7 @@ vector<double> DiJetEvent::operator() (void)
     double xs;
 
     double phi;
+    double phi_Pt;
     double qt;
     double Pt;
     double z;
@@ -257,6 +292,7 @@ vector<double> DiJetEvent::operator() (void)
     {
         r = (*r_sample)(*rng);
         phi=(*phi_sample)(*rng);
+        phi_Pt=(*phi_sample)(*rng);
         z=(*z_sample)(*rng);
         qt=(*qt_sample)(*rng);
         Pt=(*Pt_sample)(*rng);
@@ -270,6 +306,7 @@ vector<double> DiJetEvent::operator() (void)
     output.push_back(qt);
     output.push_back(z);
     output.push_back(phi);
+    output.push_back(phi_Pt);
     return output;
 }
 
@@ -339,7 +376,7 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
 
         if (status == GSL_SUCCESS)
         {
-            cerr<< "converged to maximim at \n";
+            //cerr<< "converged to maximim at \n";
         }
 
     }
@@ -348,32 +385,40 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
      Xsmax = - 2.0*s->fval ;
 
 
-    cerr << Xsmax << "\n";
+    //cerr << Xsmax << "\n";
 
     unsigned long seed = mix(clock(), time(NULL), time(NULL));
 
     rng = new RNGType(seed);
 
-    z_sample = new uniform_real_distribution<> ( z_min, z_max );
-    phi_sample = new uniform_real_distribution<> ( 0.0, 2.0*M_PI );
-    Pt_sample = new uniform_real_distribution<> ( qt_min, qt_max );
-    qt_sample = new uniform_real_distribution<> ( qt_min, qt_max );
-    r_sample = new uniform_real_distribution<> ( 0.0, 1.0 );
+    z_sample = new boost::random::uniform_real_distribution<> ( z_min, z_max );
+    phi_sample = new boost::random::uniform_real_distribution<> ( 0.0, 2.0*M_PI );
+    Pt_sample = new boost::random::uniform_real_distribution<> ( qt_min, qt_max );
+    qt_sample = new boost::random::uniform_real_distribution<> ( qt_min, qt_max );
+    r_sample = new boost::random::uniform_real_distribution<> ( 0.0, 1.0 );
 
 }
 
 
 int main(int argc, char** argv)
 {
-    gsl_ieee_env_setup();
+    //std::cout.width(15);
+		gsl_ieee_env_setup();
     TMD  generator = TMD(sqrts);
     DiJetEvent DJ (&generator);
-    for(int i=0; i<number_of_events; i++)
+    cout << "#  Pt\t qt\t z\t phi\t k1x\t k1y\t k2x\t k2y\n"; 
+		for(int i=0; i<number_of_events; i++)
     {
         vector<double>  event = DJ();
+				vector<double> k1k2 = DJ.k1k2f(event); 
         cout << event[0] << " "  << event[1] << " "
              << event[2] << " "
-             << event[3] << "\n"<<flush;
+             << event[3] << " ";
+				for(int j=0; j< k1k2.size(); j++)
+				{
+					cout << k1k2.at(j) << " " ; 
+				}
+				cout << "\n" << flush;
     }
     //6.33333 4.5 7.05232
     //cout << generator.get_xG_at_Y_qt(6.33333,4.5) << "\n";

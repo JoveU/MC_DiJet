@@ -6,6 +6,6 @@ CFLAGS= -O2 -lgsl -lgslcblas -linterp2d
 
 all: 
 	cd interp2d && cmake . && make 
-	g++ $(INCLUDES) $(LIBS) $(CFLAGS) mc_dijet.cpp -o mc_dijet.x 
+	g++  mc_dijet.cpp -o mc_dijet.x $(INCLUDES) $(LIBS) $(CFLAGS)
 clean:
 	rm -rf mc_dijet.x interp2d/Makefile interp2d/*.a interp2d/CMakeCache.txt interp2d/CMakeFiles interp2d/cmake_install.cmake
