@@ -1,6 +1,6 @@
 CC=g++
-INCLUDES = -I /sw/include -I/sw/opt/boost-1_58/include/
-LIBS= -L /sw/lib/ -L interp2d 
+INCLUDES = -I /sw/include -I/sw/opt/boost-1_58/include/ -I~/lib/include
+LIBS= -L /sw/lib/ -L ~/lib/lib -L interp2d 
 CFLAGS= -std=c++11 -O2 -lgsl -lgslcblas -linterp2d
 
 
