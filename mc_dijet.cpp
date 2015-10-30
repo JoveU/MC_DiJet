@@ -606,7 +606,8 @@ DIS::DIS(double sqrtSin):sqrtS(sqrtSin)
     double W_max = sqrtS;
     double W_min = sqrt(M*M+Q_min*Q_min*(1.0-X0)/X0);
     double W_step = (W_max-W_min)/(ind_W-1);
-
+		
+		cerr << "# generating interpolating cache\n"; 
     for(int i=0; i<ind_Q; i++)
     {
         double Q = Q_min + Q_step*i;
@@ -617,9 +618,10 @@ DIS::DIS(double sqrtSin):sqrtS(sqrtSin)
             vec_W[j] =  W;
             Xs_T[i+j*ind_Q] = Flux_T(Q, W) * integrated_Xs(Q, W, 0);
             Xs_L[i+j*ind_Q] = Flux_L(Q, W) * integrated_Xs(Q, W, 1);
-						cout << Q << " " <<  W  <<  " "  << Xs_T[i+j*ind_Q] << " " << Xs_L[i+j*ind_Q] <<   " \n";
+						//cout << Q << " " <<  W  <<  " "  << Xs_T[i+j*ind_Q] << " " << Xs_L[i+j*ind_Q] <<   " \n";
         }
     }
+		cerr << "# done generating interpolating cache\n"; 
 
 
     T=interp2d_bilinear;
