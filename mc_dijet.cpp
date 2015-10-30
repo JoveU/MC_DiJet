@@ -3,28 +3,57 @@
 #include <gsl/gsl_ieee_utils.h>
 #include <gsl/gsl_test.h>
 #include <gsl/gsl_multimin.h>
+#include <gsl/gsl_integration.h>
 #include "interp2d/interp2d.h"
 #include "interp2d/interp2d_spline.h"
 #include <iostream>
 #include <fstream>
 #include <string>
-//#include <random>
+#include <random>
 
-
+/*
 #include <boost/random.hpp>
 #include <boost/generator_iterator.hpp>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
 #include <boost/math/special_functions/factorials.hpp>
+*/
+
+
 
 using namespace std;
 //using namespace blitz;
-//using namespace blitz::random;
 
-typedef boost::random::mt19937 RNGType;
+typedef mt19937 RNGType;
 const size_t Y_size=21, Pt_size=178;
 const size_t number_of_events=1000000;
 const double sqrts=100.0;
+
+
+const double qt_min = 1.0;
+const double qt_max = 30.0;
+const double Pt_max = 30.0;
+const double z_reg = 1e-3;
+const double epsrel = 1e-1;
+constexpr double X0 = 1e-2;
+
+const double M = 1; //nuclon mass
+
+
+
+
+double Flux_T(double Q, double W)
+{
+    return 1.0;
+}
+
+double Flux_L(double Q, double W)
+{
+    return 1.0;
+}
+
+
+
 
 unsigned long mix(unsigned long a, unsigned long b, unsigned long c)
 {
@@ -76,38 +105,42 @@ class TMD
     double sqrtS;
     double s;
     double prefactor;
-    static const double ratio_Q_over_Pt = 2.0;
-    static const double sum_charge2 = .666666;
-    static const double alpha_em = .00729927;
-    static const double alpha_s = .15;
-    static const double S_perp = 1300.0; //mb
-    static const double S_perp_JIMWLK =  2704.0; //mb
+    double Q;
+    //constexpr static double ratio_Q_over_Pt = 2.0;
+
+    constexpr static double sum_charge2 = .666666;
+    constexpr static double alpha_em = .00729927;
+    constexpr static double alpha_s = .15;
+    constexpr static double S_perp = 1300.0; //mb
+    constexpr static double S_perp_JIMWLK =  2704.0; //mb
 
     void load_data(void);
     double get_Q(double Pt);
     double get_epsf2(double Q, double z);
-    double get_Xsection(double Pt, double qt, double z, double phi);
+    double get_Xsection(double Pt, double qt, double z, double phi, int pol);
     bool Out_of_Kinematic_Constrains(double Pt, double qt, double x);
 
 
 public:
-    static const double x0 = 1e-2;
-    TMD(double sqrtSin);
+    constexpr static  double x0 = X0;
+    TMD(double sqrtSin, double Qin);
+		vector<double> get_Xsection_components(double Pt, double qt, double z, double phi);
     double get_x0(void)
     {
         return x0;
     }
+
     double get_xG_at_Y_qt(double Y, double qt);
     double get_xH_at_Y_qt(double Y, double qt);
-    double operator() (double Pt, double qt, double z, double phi)
+    double operator() (double Pt, double qt, double z, double phi, int pol)
     {
-        return get_Xsection(Pt,qt,z,phi);
+        return get_Xsection(Pt,qt,z,phi,pol);
     }
 
     double get_x(double Pt, double qt, double z);
 };
 
-TMD::TMD(double sqrtSin): sqrtS(sqrtSin)
+TMD::TMD(double sqrtSin, double Qin): sqrtS(sqrtSin), Q(Qin)
 {
     s = sqrtS*sqrtS;
     prefactor = alpha_em * alpha_s * sum_charge2;
@@ -129,6 +162,8 @@ TMD::TMD(double sqrtSin): sqrtS(sqrtSin)
     interp2d_spline_init(interp_xH, Pt_arr, Y_arr, xH_arr, Pt_size, Y_size);
 }
 
+
+
 double TMD::get_x(double Pt, double qt, double z)
 {
     double x = ( qt*qt + Pt*Pt/(z*(1.0-z)) ) / s;
@@ -137,7 +172,6 @@ double TMD::get_x(double Pt, double qt, double z)
 
 double TMD::get_Q(double Pt)
 {
-    double Q = ratio_Q_over_Pt * Pt;
     return Q;
 }
 
@@ -151,19 +185,52 @@ bool TMD::Out_of_Kinematic_Constrains(double Pt, double qt, double x)
 {
     if(x>x0) return true;
     if(qt>Pt) return true;
-    if(qt>30.0) return true;
+    if(qt>qt_max) return true;
     if(x<.000129349) return true;
 
     return false;
 }
 
 
-double TMD::get_Xsection(double Pt, double qt, double z, double phi)
+double TMD::get_Xsection(double Pt, double qt, double z, double phi, int pol)
 {
     double x = get_x(Pt, qt, z);
     if(Out_of_Kinematic_Constrains(Pt, qt, x)) return 0.0;
 
-    double Q = get_Q(Pt);
+    //double Q = get_Q(Pt);
+    double epsf2= get_epsf2(Q, z);
+    double Y = log(x0/x);
+
+    double xG = get_xG_at_Y_qt(Y,qt);
+    double xH = get_xH_at_Y_qt(Y,qt);
+
+    double Conversion_prefactor= S_perp/S_perp_JIMWLK * 2 * M_PI; //one angle is integrated out
+
+    double transverse_Xsection =
+        prefactor * (z*z  + (1.0-z)*(1.0-z) ) * ( epsf2*epsf2 + pow(Pt,4) ) / pow(Pt*Pt+epsf2, 4) *
+        ( xG - 2.0 * epsf2 * Pt * Pt/ ( epsf2*epsf2+pow(Pt,4) ) * cos (2.0*phi) * xH );
+
+    double long_Xsection =
+        prefactor * ( z*(1.0-z) ) * 8.0 * ( epsf2*pow(Pt,2) ) / pow(Pt*Pt+epsf2, 4) *
+        ( xG + cos (2.0*phi) * xH );
+    if (pol==0) return  Pt*qt*Conversion_prefactor * (transverse_Xsection) ;
+    if (pol==1) return  Pt*qt*Conversion_prefactor * (long_Xsection);
+    if (pol==2) return  Pt*qt*Conversion_prefactor * (long_Xsection+transverse_Xsection);
+		return 0.0;
+}
+
+vector<double> TMD::get_Xsection_components(double Pt, double qt, double z, double phi)
+{
+    double x = get_x(Pt, qt, z);
+    vector<double> out;
+    if(Out_of_Kinematic_Constrains(Pt, qt, x)) 
+		{
+			out.push_back(0.0);
+			out.push_back(0.0);
+		return out;
+		}
+
+    //double Q = get_Q(Pt);
     double epsf2= get_epsf2(Q, z);
     double Y = log(x0/x);
 
@@ -180,10 +247,10 @@ double TMD::get_Xsection(double Pt, double qt, double z, double phi)
         prefactor * ( z*(1.0-z) ) * 8.0 * ( epsf2*pow(Pt,2) ) / pow(Pt*Pt+epsf2, 4) *
         ( xG + cos (2.0*phi) * xH );
 
-    return Pt*qt*Conversion_prefactor * (transverse_Xsection + long_Xsection) ;
+    out.push_back(Pt*qt*Conversion_prefactor * transverse_Xsection);
+    out.push_back(Pt*qt*Conversion_prefactor * long_Xsection);
+    return out;
 }
-
-
 
 void TMD::load_data(void)
 {
@@ -229,54 +296,51 @@ class DiJetEvent
 {
     RNGType *rng;
     TMD *Xsection;
-    boost::random::uniform_real_distribution<> *z_sample;
-    boost::random::uniform_real_distribution<> *Pt_sample;
-    boost::random::uniform_real_distribution<> *qt_sample;
-    boost::random::uniform_real_distribution<> *phi_sample;
-    boost::random::uniform_real_distribution<> *r_sample;
+    std::uniform_real_distribution<> *z_sample;
+    std::uniform_real_distribution<> *Pt_sample;
+    std::uniform_real_distribution<> *qt_sample;
+    std::uniform_real_distribution<> *phi_sample;
+    std::uniform_real_distribution<> *r_sample;
 
-		static double f_minimize(const gsl_vector * x, void * params);
-    double z_min, z_max, qt_min, qt_max, x0, Xsmax;
+    static double f_minimize(const gsl_vector * x, void * params);
+    double z_min, z_max, x0, Xsmax;
 public:
     DiJetEvent(TMD* Xs);
-    vector<double>  operator() (void);
+    vector<double>  operator() (int pol);
 		vector<double> k1k2f(vector<double>  params);
 
 };
 
-
 vector<double> DiJetEvent::k1k2f(vector<double>  params)
 {
-	double Pt = params.at(0);  
-	double qt = params.at(1);
-	double z = params.at(2); 
-	double phi = params.at(3);
-	double phi_pt = params.at(4);
-	
-	double Ptx = Pt * cos(phi_pt);
-	double Pty = Pt * sin(phi_pt);
+    double Pt = params.at(0);
+    double qt = params.at(1);
+    double z = params.at(2);
+    double phi = params.at(3);
+    double phi_pt = params.at(4);
 
-	double qtx = qt * cos(phi_pt+phi);
-	double qty = qt * sin(phi_pt+phi);
-	
-	double k1x =  Ptx + z*qtx;
-	double k1y =  Pty + z*qty;
+    double Ptx = Pt * cos(phi_pt);
+    double Pty = Pt * sin(phi_pt);
 
-	double k2x =  -Ptx + (1.0-z)*qtx;
-	double k2y =  -Pty + (1.0-z)*qty;
+    double qtx = qt * cos(phi_pt+phi);
+    double qty = qt * sin(phi_pt+phi);
 
-	vector<double> k1k2; 
-	k1k2.push_back(k1x);
-	k1k2.push_back(k1y);
-	k1k2.push_back(k2x);
-	k1k2.push_back(k2y);
+    double k1x =  Ptx + z*qtx;
+    double k1y =  Pty + z*qty;
 
-	return k1k2; 
+    double k2x =  -Ptx + (1.0-z)*qtx;
+    double k2y =  -Pty + (1.0-z)*qty;
+
+    vector<double> k1k2;
+    k1k2.push_back(k1x);
+    k1k2.push_back(k1y);
+    k1k2.push_back(k2x);
+    k1k2.push_back(k2y);
+
+    return k1k2;
 }
 
-
-
-vector<double> DiJetEvent::operator() (void)
+vector<double> DiJetEvent::operator() (int pol)
 {
     double r;
     double xs;
@@ -296,7 +360,7 @@ vector<double> DiJetEvent::operator() (void)
         z=(*z_sample)(*rng);
         qt=(*qt_sample)(*rng);
         Pt=(*Pt_sample)(*rng);
-        xs = (*Xsection)(Pt, qt, z, phi) / Xsmax;
+        xs = (*Xsection)(Pt, qt, z, phi, pol) / Xsmax;
         //cout << xs << "\n";
         if (xs>1.0) cerr << "something wrong " << Xsmax << " " <<  xs<< "\n";
     }
@@ -307,30 +371,29 @@ vector<double> DiJetEvent::operator() (void)
     output.push_back(z);
     output.push_back(phi);
     output.push_back(phi_Pt);
+    output.push_back(xs*Xsmax);
     return output;
 }
 
 
 double DiJetEvent::f_minimize(const gsl_vector * x, void * params)
 {
-	double Pt = gsl_vector_get (x, 0);
-	double qt = gsl_vector_get (x, 1);
-	double z = gsl_vector_get (x, 2);
+    double Pt = gsl_vector_get (x, 0);
+    double qt = gsl_vector_get (x, 1);
+    double z = gsl_vector_get (x, 2);
 
 
-	DiJetEvent *instance = (DiJetEvent *) params;
-	if(  (z-instance->z_min)*(z-instance->z_max) >0 ) return 0.0;
-	if(  (qt-instance->qt_min)*(qt-instance->qt_max) >0 ) return 0.0;
+    DiJetEvent *instance = (DiJetEvent *) params;
+    if(  (z-instance->z_min)*(z-instance->z_max) >0 ) return 0.0;
+    if(  (qt-qt_min)*(qt-qt_max) >0 ) return 0.0;
 
-	return ( - (*(instance->Xsection))(Pt, qt, z, 0.0) );
+    return ( - (*(instance->Xsection))(Pt, qt, z, 0.0,2) );
 }
 
 DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
 {
-    z_min = 0.001;
-    z_max = 1.0-0.001;
-    qt_min = 1.0;
-    qt_max = 10.0;
+    z_min =  z_reg;
+    z_max = 1.0-z_reg;
 
     x0 = Xsection->get_x0();
 
@@ -373,16 +436,17 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
 
         size = gsl_multimin_fminimizer_size (s);
         status = gsl_multimin_test_size (size, 1e-2);
-
+				/*
         if (status == GSL_SUCCESS)
         {
-            //cerr<< "converged to maximim at \n";
+            cerr<< "converged to maximim at \n";
         }
+				*/
 
     }
     while (status == GSL_CONTINUE && iter < 100);
 
-     Xsmax = - 2.0*s->fval ;
+    Xsmax = - 2.0*s->fval ;
 
 
     //cerr << Xsmax << "\n";
@@ -391,36 +455,259 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
 
     rng = new RNGType(seed);
 
-    z_sample = new boost::random::uniform_real_distribution<> ( z_min, z_max );
-    phi_sample = new boost::random::uniform_real_distribution<> ( 0.0, 2.0*M_PI );
-    Pt_sample = new boost::random::uniform_real_distribution<> ( qt_min, qt_max );
-    qt_sample = new boost::random::uniform_real_distribution<> ( qt_min, qt_max );
-    r_sample = new boost::random::uniform_real_distribution<> ( 0.0, 1.0 );
+    z_sample = new uniform_real_distribution<> ( z_min, z_max );
+    phi_sample = new uniform_real_distribution<> ( 0.0, 2.0*M_PI );
+    Pt_sample = new uniform_real_distribution<> ( qt_min, qt_max );
+    qt_sample = new uniform_real_distribution<> ( qt_min, qt_max );
+    r_sample = new uniform_real_distribution<> ( 0.0, 1.0 );
 
 }
 
 
+struct tmd_parameters
+{
+    TMD* gen;
+    int* pol;
+    double* Pt;
+    double* qt;
+    double* z;
+};
+
+
+class DIS
+{
+    RNGType *rng;
+    std::uniform_real_distribution<> *Q_sample;
+    std::uniform_real_distribution<> *x_sample;
+    std::uniform_real_distribution<> *r_sample;
+
+
+    double sqrtS;
+    double Q_min, Q_max;
+    double x0;
+
+    double* Xs_L;
+    double* Xs_T;
+    double* vec_Q;
+    double* vec_W;
+
+    size_t ind_Q, ind_W;
+
+    interp2d_spline* interp_Xs_L;
+    interp2d_spline* interp_Xs_T;
+
+    gsl_interp_accel *xa, *ya;
+    const interp2d_type* T;
+
+
+    TMD* generator;
+    DiJetEvent* DJ;
+
+		double integrated_Xs(double Q, double W, int pol);
+public:
+    DIS(double sqrtSin);
+    vector<double> operator() (void);
+};
+
+
+
+double u_Int_qt(double qt, void* params)
+{
+    double Pt = *(((struct tmd_parameters *) params )->Pt);
+    double z = *(((struct tmd_parameters *) params )->z);
+    int pol = *(((struct tmd_parameters *) params )->pol);
+    TMD* gen  = ((struct tmd_parameters *) params )->gen;
+
+    vector<double> X_section = gen->get_Xsection_components(Pt, qt, z, M_PI/4.0); //so that cos(2 phi) = 0  --  the angular integration results in this
+
+
+		//cout << z << " " << qt << " " << X_section.at(pol) << "\n";
+    return X_section.at(pol);
+}
+
+
+double u_Int_Pt(double Pt, void* params)
+{
+    double result, error;
+    gsl_function F;
+
+    F.function = &u_Int_qt;
+
+    tmd_parameters  pass = *(struct tmd_parameters *) params;
+    pass.Pt = &Pt;
+    F.params = &pass;
+
+		gsl_integration_workspace * gsl_int_ws = gsl_integration_workspace_alloc (1000);
+    gsl_integration_qag(&F, qt_min, Pt, 0, epsrel, 1000, 1, gsl_int_ws, &result, &error); //the upper integration limit is Pt
+	  gsl_integration_workspace_free (gsl_int_ws);
+
+    return result;
+}
+
+
+double u_Int_z(double z, void* params)
+{
+    double result, error;
+    gsl_function F;
+
+    F.function = &u_Int_Pt;
+		
+		//cout << z << "zz \n";
+
+    tmd_parameters  pass = *(struct tmd_parameters *) params;
+    pass.z = &z;
+		//cout << *pass.z << " " << z <<  " z \n";
+    F.params = &pass;
+		gsl_integration_workspace * gsl_int_ws = gsl_integration_workspace_alloc (1000);
+    gsl_integration_qag(&F, qt_min, Pt_max, 0, epsrel, 1000, 1, gsl_int_ws, &result, &error); //the upper integration limit is Pt
+	  gsl_integration_workspace_free (gsl_int_ws);
+
+    return result;
+}
+
+double DIS::integrated_Xs(double Q, double W, int pol)
+{
+    TMD generator = TMD(W, Q); //create the TMD class
+
+    double result, error;
+    gsl_function F;
+
+    F.function = &u_Int_z;
+
+    tmd_parameters  pass;
+    pass.gen = &generator;
+    pass.pol = &pol;
+    F.params = &pass;
+
+		//cout << z_reg << " reg \n";
+
+		gsl_integration_workspace * gsl_int_ws = gsl_integration_workspace_alloc (1000);
+    gsl_integration_qag(&F, z_reg, 1.0-z_reg, 0, epsrel, 1000, 1, gsl_int_ws, &result, &error); //the upper integration limit is Pt
+	  gsl_integration_workspace_free (gsl_int_ws);
+
+    return result;
+}
+
+DIS::DIS(double sqrtSin):sqrtS(sqrtSin)
+{
+    ind_Q = 20.0;
+    ind_W = 20.0;
+
+    Xs_L = new double[ind_Q*ind_W]; //matrices to be populated with the integrated x-section
+    Xs_T = new double[ind_Q*ind_W];
+
+    vec_Q = new double[ind_Q];
+    vec_W = new double[ind_W];
+
+    double Q_max = sqrt(sqrtS*sqrtS-M*M)*sqrt(X0);
+    double Q_min = 2;
+    double Q_step = (Q_max-Q_min)/(ind_Q-1);
+
+    double W_max = sqrtS;
+    double W_min = sqrt(M*M+Q_min*Q_min*(1.0-X0)/X0);
+    double W_step = (W_max-W_min)/(ind_W-1);
+
+    for(int i=0; i<ind_Q; i++)
+    {
+        double Q = Q_min + Q_step*i;
+        vec_Q[i] =  Q;
+        for(int j=0; j<ind_W; j++)
+        {
+            double W = W_min + W_step*j;
+            vec_W[j] =  W;
+            Xs_T[i+j*ind_Q] = Flux_T(Q, W) * integrated_Xs(Q, W, 0);
+            Xs_L[i+j*ind_Q] = Flux_L(Q, W) * integrated_Xs(Q, W, 1);
+						cout << Q << " " <<  W  <<  " "  << Xs_T[i+j*ind_Q] << " " << Xs_L[i+j*ind_Q] <<   " \n";
+        }
+    }
+
+
+    T=interp2d_bilinear;
+    xa = gsl_interp_accel_alloc();
+    ya = gsl_interp_accel_alloc();
+    interp_Xs_L = interp2d_spline_alloc(T, ind_Q, ind_W);
+    interp_Xs_T = interp2d_spline_alloc(T, ind_Q, ind_W);
+
+    interp2d_spline_init(interp_Xs_L, vec_Q, vec_W, Xs_L, ind_Q, ind_W);
+    interp2d_spline_init(interp_Xs_T, vec_Q, vec_W, Xs_T, ind_Q, ind_W);
+
+    unsigned long seed = mix(clock(), time(NULL), time(NULL));
+    rng = new RNGType(seed);
+    Q_sample = new uniform_real_distribution<> ( Q_min, Q_max );
+    r_sample = new uniform_real_distribution<> ( 0, 1 );
+}
+
+
+struct event_output
+{
+
+};
+
+vector<double> DIS::operator() (void)
+{
+    double Q = (*Q_sample)(*rng);
+
+    x_sample = new uniform_real_distribution<> ( Q*Q/(sqrtS*sqrtS-M*M), X0);
+    double x = (*x_sample)(*rng);
+
+    double W = sqrt(M*M + (1.0-x)*Q*Q/x);
+
+    double r = (*r_sample)(*rng);
+
+    double Xs_L =  interp2d_spline_eval(interp_Xs_L,  Q, W,  xa, ya);
+    double Xs_T =  interp2d_spline_eval(interp_Xs_T,  Q, W,  xa, ya);
+
+    double ratio  = Xs_L/(Xs_L+Xs_T);
+
+    bool longit = false;
+    if(r<ratio) longit = true;
+
+		//Step 5 from the notes
+ 
+ 		
+		TMD  generator = TMD(W,Q);
+		DiJetEvent DJ (&generator);
+	
+		int pol = 0; //transverse 
+		if (longit) pol=1; //longit
+
+		vector<double> event = DJ(pol);
+    vector<double> k1k2 = DJ.k1k2f(event);
+
+		vector<double> output = event;
+		output.push_back(W);
+		output.push_back(Q);
+		output.push_back(pol);
+		for(int i=0;i<k1k2.size(); i++)
+		{
+			output.push_back(k1k2.at(i)); 
+		}
+
+    delete(x_sample);
+
+		return output;
+}
+
 int main(int argc, char** argv)
 {
-    //std::cout.width(15);
-		gsl_ieee_env_setup();
-    TMD  generator = TMD(sqrts);
-    DiJetEvent DJ (&generator);
-    cout << "#  Pt\t qt\t z\t phi\t k1x\t k1y\t k2x\t k2y\n"; 
-		for(int i=0; i<number_of_events; i++)
+    gsl_ieee_env_setup();
+    //TMD  generator = TMD(sqrts);
+    //DiJetEvent DJ (&generator);
+		
+		DIS generator = DIS(100);
+    cout << "#  Pt\t qt\t z\t phi\t phiT\t xS\t W\t Q\t Pol\t k1x\t k1y\t k2x\t k2y\n";
+    for(int i=0; i<number_of_events; i++)
     {
-        vector<double>  event = DJ();
-				vector<double> k1k2 = DJ.k1k2f(event); 
-        cout << event[0] << " "  << event[1] << " "
-             << event[2] << " "
-             << event[3] << " ";
-				for(int j=0; j< k1k2.size(); j++)
+        vector<double> event = generator();
+     		for(int j=0; j<event.size(); j++)
 				{
-					cout << k1k2.at(j) << " " ; 
+					cout << event[j] << " ";  
 				}
 				cout << "\n" << flush;
     }
     //6.33333 4.5 7.05232
     //cout << generator.get_xG_at_Y_qt(6.33333,4.5) << "\n";
     //cout << generator.get_xH_at_Y_qt(6.33333,4.5) << "\n";
+
+
 }
