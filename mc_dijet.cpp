@@ -595,8 +595,8 @@ double DIS::integrated_Xs(double Q, double W, int pol)
 
 DIS::DIS(double sqrtSin):sqrtS(sqrtSin)
 {
-    ind_Q = 10.0;
-    ind_W = 10.0;
+    ind_Q = 50;
+    ind_W = 50;
 
     Xs_L = new double[ind_Q*ind_W]; //matrices to be populated with the integrated x-section
     Xs_T = new double[ind_Q*ind_W];
@@ -612,7 +612,7 @@ DIS::DIS(double sqrtSin):sqrtS(sqrtSin)
     double W_min = sqrt(M*M+Q_min*Q_min*(1.0-X0)/X0);
     double W_step = (W_max-W_min)/(ind_W-1);
 		
-		cerr << "# generating interpolating cache\n"; 
+		cout << "# generating interpolating cache\n"; 
     for(int i=0; i<ind_Q; i++)
     {
         double Q = Q_min + Q_step*i;
@@ -626,7 +626,7 @@ DIS::DIS(double sqrtSin):sqrtS(sqrtSin)
 						//cout << Q << " " <<  W  <<  " "  << Xs_T[i+j*ind_Q] << " " << Xs_L[i+j*ind_Q] <<   " \n";
         }
     }
-		cerr << "# done generating interpolating cache\n"; 
+		cout << "# done generating interpolating cache\n"; 
 
 
     T=interp2d_bilinear;
