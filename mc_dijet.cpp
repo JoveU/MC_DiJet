@@ -365,10 +365,10 @@ vector<double> DiJetEvent::operator() (int pol)
         //cout << xs << "\n";
 				count++;
         if (xs>1.0) cerr << "something wrong " << Xsmax << " " <<  xs<< "\n";
-				if(count>500000) 
+				if((count>500000)||(std::isnan(xs))) 
 				{
 					vector<double> out;
-					cerr << "it is taking too long for this configuration \n";
+					//cerr << "it is taking too long for this configuration \n";
 					return out; //empty vector
 				}
     }
@@ -452,7 +452,7 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
 				*/
 
     }
-    while (status == GSL_CONTINUE && iter < 100);
+    while (status == GSL_CONTINUE && iter < 10000);
 
     Xsmax = - 2.0*s->fval ;
 
@@ -673,8 +673,11 @@ vector<double> DIS::operator() (void)
 
     Xs_L =  interp2d_spline_eval(interp_Xs_L,  Q, W,  xa, ya);
     Xs_T =  interp2d_spline_eval(interp_Xs_T,  Q, W,  xa, ya);
+    
+	
 
-    ratio  = Xs_L/(Xs_L+Xs_T);
+    ratio  = Xs_L/( Xs_L + Xs_T );
+
 
     longit = false;
     if(r<ratio) longit = true;
