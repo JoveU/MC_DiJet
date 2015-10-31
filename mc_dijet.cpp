@@ -40,7 +40,8 @@ constexpr double X0 = 1e-2;
 const double M = 1; //nuclon mass
 
 
-
+unsigned long seed;
+RNGType *rng;
 
 double Flux_T(double Q, double W)
 {
@@ -294,7 +295,6 @@ double TMD::get_xH_at_Y_qt(double Y, double qt)
 
 class DiJetEvent
 {
-    RNGType *rng;
     TMD *Xsection;
     std::uniform_real_distribution<> *z_sample;
     std::uniform_real_distribution<> *Pt_sample;
@@ -351,6 +351,7 @@ vector<double> DiJetEvent::operator() (int pol)
     double Pt;
     double z;
 
+		size_t count=0; 
 
     do
     {
@@ -362,7 +363,14 @@ vector<double> DiJetEvent::operator() (int pol)
         Pt=(*Pt_sample)(*rng);
         xs = (*Xsection)(Pt, qt, z, phi, pol) / Xsmax;
         //cout << xs << "\n";
+				count++;
         if (xs>1.0) cerr << "something wrong " << Xsmax << " " <<  xs<< "\n";
+				if(count>500000) 
+				{
+					vector<double> out;
+					cerr << "it is taking too long for this configuration \n";
+					return out; //empty vector
+				}
     }
     while(r>xs);
     vector<double> output;
@@ -451,9 +459,7 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
 
     //cerr << Xsmax << "\n";
 
-    unsigned long seed = mix(clock(), time(NULL), time(NULL));
 
-    rng = new RNGType(seed);
 
     z_sample = new uniform_real_distribution<> ( z_min, z_max );
     phi_sample = new uniform_real_distribution<> ( 0.0, 2.0*M_PI );
@@ -476,7 +482,6 @@ struct tmd_parameters
 
 class DIS
 {
-    RNGType *rng;
     std::uniform_real_distribution<> *Q_sample;
     std::uniform_real_distribution<> *x_sample;
     std::uniform_real_distribution<> *r_sample;
@@ -590,8 +595,8 @@ double DIS::integrated_Xs(double Q, double W, int pol)
 
 DIS::DIS(double sqrtSin):sqrtS(sqrtSin)
 {
-    ind_Q = 20.0;
-    ind_W = 20.0;
+    ind_Q = 10.0;
+    ind_W = 10.0;
 
     Xs_L = new double[ind_Q*ind_W]; //matrices to be populated with the integrated x-section
     Xs_T = new double[ind_Q*ind_W];
@@ -633,8 +638,8 @@ DIS::DIS(double sqrtSin):sqrtS(sqrtSin)
     interp2d_spline_init(interp_Xs_L, vec_Q, vec_W, Xs_L, ind_Q, ind_W);
     interp2d_spline_init(interp_Xs_T, vec_Q, vec_W, Xs_T, ind_Q, ind_W);
 
-    unsigned long seed = mix(clock(), time(NULL), time(NULL));
-    rng = new RNGType(seed);
+    //unsigned long seed = mix(clock(), time(NULL), time(NULL));
+    //rng = new RNGType(seed);
     Q_sample = new uniform_real_distribution<> ( Q_min, Q_max );
     r_sample = new uniform_real_distribution<> ( 0, 1 );
 }
@@ -647,34 +652,47 @@ struct event_output
 
 vector<double> DIS::operator() (void)
 {
-    double Q = (*Q_sample)(*rng);
+
+		double Q, x, W, r, Xs_L, Xs_T, ratio;
+		bool longit;
+		int pol;
+		TMD*  generator;
+    DiJetEvent* DJ;
+		vector<double> event;
+		
+		do
+		{
+	Q = (*Q_sample)(*rng);
 
     x_sample = new uniform_real_distribution<> ( Q*Q/(sqrtS*sqrtS-M*M), X0);
-    double x = (*x_sample)(*rng);
+    x = (*x_sample)(*rng);
 
-    double W = sqrt(M*M + (1.0-x)*Q*Q/x);
+    W = sqrt(M*M + (1.0-x)*Q*Q/x);
 
-    double r = (*r_sample)(*rng);
+    r = (*r_sample)(*rng);
 
-    double Xs_L =  interp2d_spline_eval(interp_Xs_L,  Q, W,  xa, ya);
-    double Xs_T =  interp2d_spline_eval(interp_Xs_T,  Q, W,  xa, ya);
+    Xs_L =  interp2d_spline_eval(interp_Xs_L,  Q, W,  xa, ya);
+    Xs_T =  interp2d_spline_eval(interp_Xs_T,  Q, W,  xa, ya);
 
-    double ratio  = Xs_L/(Xs_L+Xs_T);
+    ratio  = Xs_L/(Xs_L+Xs_T);
 
-    bool longit = false;
+    longit = false;
     if(r<ratio) longit = true;
 
 		//Step 5 from the notes
  
  		
-		TMD  generator = TMD(W,Q);
-		DiJetEvent DJ (&generator);
+		TMD*  generator = new TMD(W,Q);
+		DJ = new DiJetEvent (generator);
 	
-		int pol = 0; //transverse 
+		pol = 0; //transverse 
 		if (longit) pol=1; //longit
 
-		vector<double> event = DJ(pol);
-    vector<double> k1k2 = DJ.k1k2f(event);
+		event = (*DJ)(pol);
+		}
+		while(event.size()<1);
+
+    vector<double> k1k2 = DJ->k1k2f(event);
 
 		vector<double> output = event;
 		output.push_back(W);
@@ -695,7 +713,9 @@ int main(int argc, char** argv)
     gsl_ieee_env_setup();
     //TMD  generator = TMD(sqrts);
     //DiJetEvent DJ (&generator);
-		
+		seed = mix(clock(), time(NULL), time(NULL));
+		rng = new RNGType(seed);
+
 		DIS generator = DIS(100);
     cout << "#  Pt\t qt\t z\t phi\t phiT\t xS\t W\t Q\t Pol\t k1x\t k1y\t k2x\t k2y\n";
     for(int i=0; i<number_of_events; i++)
