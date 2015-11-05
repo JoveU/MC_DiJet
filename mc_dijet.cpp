@@ -24,7 +24,7 @@ typedef mt19937 RNGType;
 
 const size_t number_of_events=1000000;
 const double sqrts=100.0;
-const int A_target=198;
+const int A_target=197;
 
 
 //input tables
