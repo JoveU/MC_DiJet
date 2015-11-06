@@ -621,8 +621,8 @@ DIS::DIS(double sqrtSin, int Ain):sqrtS(sqrtSin),A(Ain)
 {
 		S = sqrtS*sqrtS;
     
-		ind_Q2 = 10;
-    ind_W2 = 10;
+		ind_Q2 = 50;
+    ind_W2 = 50;
 
     Xs_L = new double[ind_Q2*ind_W2]; //matrices to be populated with the integrated x-section
     Xs_T = new double[ind_Q2*ind_W2];
@@ -743,7 +743,7 @@ vector<double> DIS::operator() (void)
         output.push_back(k1k2.at(i));
     }
 
-    delete(x_sample);
+    delete(W2_sample);
 
     return output;
 }

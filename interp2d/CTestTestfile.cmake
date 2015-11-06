@@ -1,7 +1,7 @@
 # CMake generated Testfile for 
-# Source directory: /tmp/MC_DiJet/interp2d
-# Build directory: /tmp/MC_DiJet/interp2d
+# Source directory: /home/vskokov/MC_DiJet/interp2d
+# Build directory: /home/vskokov/MC_DiJet/interp2d
 # 
-# This file includes the relevant testing commands required for 
+# This file includes the relevent testing commands required for 
 # testing this directory and lists subdirectories to be tested as well.
-add_test(all "interp2dtest")
+ADD_TEST(all "interp2dtest")
