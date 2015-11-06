@@ -24,8 +24,8 @@ typedef mt19937 RNGType;
 
 const size_t number_of_events=1000000;
 const double sqrts=100.0;
+const double alpha_em = 1.0/137.0;
 const int A_target=197;
-
 
 //input tables
 const size_t Y_size=21, Pt_size=178;
@@ -50,16 +50,25 @@ const double M = 1; //nuclon mass
 unsigned long seed;
 RNGType *rng;
 
-double Flux_T(double Q, double W)
+double yf(double Q2, double W2, double S)
 {
-    return 1.0;
+	return (W2-M*M+Q2)/(S-M*M); 
 }
 
-double Flux_L(double Q, double W)
+
+double Flux_T(double Q2, double W2, double S)
 {
-    return 1.0;
+		double y = yf(Q2,W2,S); 		
+		double redy = 1-y;
+    return  alpha_em/(2*M_PI*Q2*S*y) * (1+redy*redy) ;
 }
 
+double Flux_L(double Q2, double W2, double S)
+{
+		double y = yf(Q2,W2,S); 		
+		double redy = 1-y;
+    return  alpha_em/(M_PI*Q2*S*y) * redy  ;
+}
 
 
 
@@ -492,22 +501,26 @@ struct tmd_parameters
 
 class DIS
 {
-    std::uniform_real_distribution<> *Q_sample;
+    std::uniform_real_distribution<> *Q2_sample;
+    std::uniform_real_distribution<> *W2_sample;
     std::uniform_real_distribution<> *x_sample;
     std::uniform_real_distribution<> *r_sample;
 
 
     double sqrtS;
-    double Q_min, Q_max;
+    double Q2_min, Q2_max;
     double x0;
     int  A;
+		double S;
 
     double* Xs_L;
     double* Xs_T;
-    double* vec_Q;
-    double* vec_W;
-
-    size_t ind_Q, ind_W;
+    double* vec_Q2;
+    double* vec_W2;
+		
+		double IntXS_T, IntXS_L;  
+    
+		size_t ind_Q2, ind_W2;
 
     interp2d_spline* interp_Xs_L;
     interp2d_spline* interp_Xs_T;
@@ -606,84 +619,98 @@ double DIS::integrated_Xs(double Q, double W, int pol)
 
 DIS::DIS(double sqrtSin, int Ain):sqrtS(sqrtSin),A(Ain)
 {
-    ind_Q = 50;
-    ind_W = 50;
+		S = sqrtS*sqrtS;
+    
+		ind_Q2 = 10;
+    ind_W2 = 10;
 
-    Xs_L = new double[ind_Q*ind_W]; //matrices to be populated with the integrated x-section
-    Xs_T = new double[ind_Q*ind_W];
+    Xs_L = new double[ind_Q2*ind_W2]; //matrices to be populated with the integrated x-section
+    Xs_T = new double[ind_Q2*ind_W2];
 
-    vec_Q = new double[ind_Q];
-    vec_W = new double[ind_W];
+    vec_Q2 = new double[ind_Q2];
+    vec_W2 = new double[ind_W2];
 
-    double Q_max = sqrt(sqrtS*sqrtS-M*M)*sqrt(X0);
-    double Q_min = 2;
-    double Q_step = (Q_max-Q_min)/(ind_Q-1);
+    double Q2_max = (S-M*M)*X0/(1.0-X0);
+    Q2_min = 4;
+    
+		double Q2_step = (Q2_max-Q2_min)/(ind_Q2-1);
 
-    double W_max = sqrtS;
-    double W_min = sqrt(M*M+Q_min*Q_min*(1.0-X0)/X0);
-    double W_step = (W_max-W_min)/(ind_W-1);
+
+    double W2_max = S;
+    double W2_min = M*M+Q2_min*(1.0-X0)/X0;
+    double W2_step = (W2_max-W2_min)/(ind_W2-1);
 
     cout << "# generating interpolating cache\n";
-    for(int i=0; i<ind_Q; i++)
+    
+		IntXS_T =0.0;
+		IntXS_L =0.0;
+		
+		for(int i=0; i<ind_Q2; i++)
     {
-        double Q = Q_min + Q_step*i;
-        vec_Q[i] =  Q;
-        for(int j=0; j<ind_W; j++)
+        double Q2 = Q2_min + Q2_step*i;
+        vec_Q2[i] =  Q2;
+        for(int j=0; j<ind_W2; j++)
         {
-            double W = W_min + W_step*j;
-            vec_W[j] =  W;
-            Xs_T[i+j*ind_Q] = Flux_T(Q, W) * integrated_Xs(Q, W, 0);
-            Xs_L[i+j*ind_Q] = Flux_L(Q, W) * integrated_Xs(Q, W, 1);
-            //cout << Q << " " <<  W  <<  " "  << Xs_T[i+j*ind_Q] << " " << Xs_L[i+j*ind_Q] <<   " \n";
+            double W2 = W2_min + W2_step*j;
+            vec_W2[j] =  W2;
+						double Q = sqrt(Q2);
+						double W = sqrt(W2);
+            Xs_T[i+j*ind_Q2] = Flux_T(Q2, W2, S) * integrated_Xs(Q, W, 0);
+            Xs_L[i+j*ind_Q2] = Flux_L(Q2, W2, S) * integrated_Xs(Q, W, 1);
+						
+						IntXS_T+=Xs_T[i+j*ind_Q2]*W2_step*Q2_step;
+						IntXS_L+=Xs_L[i+j*ind_Q2]*W2_step*Q2_step;
         }
     }
     cout << "# done generating interpolating cache\n";
-
+		cout << "# sqrt(s) A  integrated x_sections\n"; 
+		cout << sqrtS << " " << A << " " << IntXS_T << " " <<  IntXS_L << "\n"<<flush; 
 
     T=interp2d_bilinear;
     xa = gsl_interp_accel_alloc();
     ya = gsl_interp_accel_alloc();
-    interp_Xs_L = interp2d_spline_alloc(T, ind_Q, ind_W);
-    interp_Xs_T = interp2d_spline_alloc(T, ind_Q, ind_W);
+    interp_Xs_L = interp2d_spline_alloc(T, ind_Q2, ind_W2);
+    interp_Xs_T = interp2d_spline_alloc(T, ind_Q2, ind_W2);
 
-    interp2d_spline_init(interp_Xs_L, vec_Q, vec_W, Xs_L, ind_Q, ind_W);
-    interp2d_spline_init(interp_Xs_T, vec_Q, vec_W, Xs_T, ind_Q, ind_W);
+    interp2d_spline_init(interp_Xs_L, vec_Q2, vec_W2, Xs_L, ind_Q2, ind_W2);
+    interp2d_spline_init(interp_Xs_T, vec_Q2, vec_W2, Xs_T, ind_Q2, ind_W2);
 
     //unsigned long seed = mix(clock(), time(NULL), time(NULL));
     //rng = new RNGType(seed);
-    Q_sample = new uniform_real_distribution<> ( Q_min, Q_max );
+    Q2_sample = new uniform_real_distribution<> ( Q2_min, Q2_max );
     r_sample = new uniform_real_distribution<> ( 0, 1 );
 }
 
 
-struct event_output
-{
-
-};
 
 vector<double> DIS::operator() (void)
 {
 
-    double Q, x, W, r, Xs_L, Xs_T, ratio;
-    bool longit;
+    double Q2, x, W2, r, Xs_L, Xs_T, ratio;
+    double Q, W;
+		bool longit;
     int pol;
     TMD*  generator;
     DiJetEvent* DJ;
     vector<double> event;
 
+		double W2_max = S;
     do
     {
-        Q = (*Q_sample)(*rng);
+        Q2 = (*Q2_sample)(*rng);
+    		
+				double W2_min = M*M+Q2_min*(1.0-X0)/X0;
 
-        x_sample = new uniform_real_distribution<> ( Q*Q/(sqrtS*sqrtS-M*M), X0);
-        x = (*x_sample)(*rng);
+				
+				W2_sample = new uniform_real_distribution<> ( W2_min, W2_max );
+       
 
-        W = sqrt(M*M + (1.0-x)*Q*Q/x);
+				W2 = (*W2_sample)(*rng);
 
         r = (*r_sample)(*rng);
 
-        Xs_L =  interp2d_spline_eval(interp_Xs_L,  Q, W,  xa, ya);
-        Xs_T =  interp2d_spline_eval(interp_Xs_T,  Q, W,  xa, ya);
+        Xs_L =  interp2d_spline_eval(interp_Xs_L,  Q2, W2,  xa, ya);
+        Xs_T =  interp2d_spline_eval(interp_Xs_T,  Q2, W2,  xa, ya);
 
         ratio  = Xs_L/( Xs_L + Xs_T );
 
@@ -692,6 +719,8 @@ vector<double> DIS::operator() (void)
 
         //Step 5 from the notes
 
+				Q = sqrt(Q2);
+				W = sqrt(W2);
 
         TMD*  generator = new TMD(W,Q,A);
         DJ = new DiJetEvent (generator);
