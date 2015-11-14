@@ -204,7 +204,7 @@ double TMD::get_epsf2(double Q, double z)
 bool TMD::Out_of_Kinematic_Constrains(double Pt, double qt, double x)
 {
     if(x>x0) return true;
-    if(qt>Pt) return true;
+    if(qt>0.666*Pt) return true;
     if(qt>qt_max) return true;
     if(x<.000129349) return true;
 
