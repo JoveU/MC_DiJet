@@ -189,6 +189,7 @@ class TMD
 public:
     constexpr static  double x0 = X0;
     TMD(double sqrtSin, double Qin, int A); // The constructor
+		virtual ~TMD(); //The destructor 
     vector<double> get_Xsection_components(double Pt, double qt, double z, double phi);
     double get_x0(void)
     {
@@ -234,6 +235,17 @@ TMD::TMD(double sqrtSin, double Qin, int A): sqrtS(sqrtSin), Q(Qin)
     // End: Initialization of the 2d bilinear interpolating functions, see the latest GSL manual.
 }
 
+TMD::~TMD()
+{
+	delete(Y_arr);
+	delete(Pt_arr);
+	delete(xG_arr);
+	delete(xH_arr);
+	interp2d_spline_free(interp_xG);
+	interp2d_spline_free(interp_xH);
+	gsl_interp_accel_free(xa);
+	gsl_interp_accel_free(ya);
+}
 
 
 double TMD::get_x(double Pt, double qt, double z)
@@ -386,6 +398,7 @@ The class generating random events that correspond to the specific x-section's f
     double z_min, z_max, x0, Xsmax;
 public:
     DiJetEvent(TMD* Xs); // The constructor; a pointer to a TMD object has to be provided
+		~DiJetEvent(); // The destructor
     vector<double>  operator() (int pol); // Returns a vector of all random kinematic variables, e.g. q⊥, P⊥
     vector<double> k1k2f(vector<double>  params); // Computes k1 and k2, from Eq 3 of 1508.04438
 
@@ -540,7 +553,7 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
     Xsmax = - 2.0*s->fval ; //With Xsmax we can generate the events.
 
     //cerr << Xsmax << "\n";
-
+		gsl_vector_free(ss);
 
     //Begin: Initialization of random number generators
     z_sample = new uniform_real_distribution<> ( z_min, z_max );
@@ -549,6 +562,15 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
     qt_sample = new uniform_real_distribution<> ( qt_min, qt_max );
     r_sample = new uniform_real_distribution<> ( 0.0, 1.0 );
     //End: Initialization of random number generators
+}
+
+DiJetEvent::~DiJetEvent()
+{
+	delete(z_sample);
+	delete(phi_sample);
+	delete(Pt_sample);
+	delete(qt_sample);
+	delete(r_sample);
 }
 
 
@@ -606,8 +628,9 @@ class DIS
 
     double integrated_Xs(double Q, double W, int pol);
 public:
-    DIS(double sqrtSin, int Ain); // Constructor. Parameters √s and A.
-    vector<double> operator() (void);
+    DIS(double sqrtSin, int Ain); // The constructor. Parameters √s and A.
+    ~DIS(); // The destructor 
+		vector<double> operator() (void);
 };
 
 
@@ -762,6 +785,19 @@ DIS::DIS(double sqrtSin, int Ain):sqrtS(sqrtSin),A(Ain)
 }
 
 
+DIS::~DIS()
+{
+	delete(Q2_sample);
+	delete(r_sample);
+  gsl_interp_accel_free(xa);
+  gsl_interp_accel_free(ya);
+	interp2d_spline_free(interp_Xs_L);
+	interp2d_spline_free(interp_Xs_T);
+  delete(Xs_L);
+  delete(Xs_T);
+  delete(vec_Q2);
+  delete(vec_W2);
+}
 
 vector<double> DIS::operator() (void)
 // Returns an event
@@ -774,6 +810,7 @@ vector<double> DIS::operator() (void)
     TMD*  generator;
     DiJetEvent* DJ;
     vector<double> event;
+    vector<double> k1k2; 
 
     double W2_max = S;
     do
@@ -807,10 +844,13 @@ vector<double> DIS::operator() (void)
         if (longit) pol=1; //longit
 
         event = (*DJ)(pol);
+    		if(event.size()>1) k1k2 = DJ->k1k2f(event);
+    		delete(W2_sample);
+    		delete(generator);
+    		delete(DJ);
     }
     while(event.size()<1);
 
-    vector<double> k1k2 = DJ->k1k2f(event);
     vector<double> output = event;
     
 		output.push_back(W);
@@ -822,7 +862,6 @@ vector<double> DIS::operator() (void)
         output.push_back(k1k2.at(i));
     }
 
-    delete(W2_sample);
     return output;
 }
 
