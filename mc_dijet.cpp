@@ -57,6 +57,8 @@ const size_t Y_size=21, Pt_size=178; // The sizes of the input tables, which wer
 // program solving JIMWLK evolution in Y. Do not change!
 
 
+const double min_qt_to_Pt_ratio = 0.666;
+
 const double qt_min = 1.0; // The minimum value of q⊥
 const double qt_max = 30.0; // The maximum value of q⊥. Do not change due to finite range of the JIMWLK tables
 const double Pt_max = 30.0; // The maximum value of \tilde{P⊥}
@@ -254,7 +256,7 @@ double TMD::get_epsf2(double Q, double z)
 bool TMD::Out_of_Kinematic_Constrains(double Pt, double qt, double x)
 {
     if(x>x0) return true;
-    if(qt>0.666*Pt) return true; // This constraints ensures that only event with q⊥<P⊥/1.5 are generated
+    if(qt>min_qt_to_Pt_ratio*Pt) return true; // This constraints ensures that only event with q⊥<P⊥*min_qt_to_Pt_ratio  are generated
     if(qt>qt_max) return true;
     if(x<.000129349) return true; //JIMWLK smallest x
 
@@ -499,7 +501,7 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
 
     /* Starting point for the minimization of the nexatife x-section*/
     x = gsl_vector_alloc (3);
-    gsl_vector_set (x, 0, qt_min);
+    gsl_vector_set (x, 0, qt_min/min_qt_to_Pt_ratio);
     gsl_vector_set (x, 1, qt_min);
     gsl_vector_set (x, 2, 0.5);
 
@@ -641,7 +643,7 @@ double u_Int_Pt(double Pt, void* params)
     F.params = &pass;
 
     gsl_integration_workspace * gsl_int_ws = gsl_integration_workspace_alloc (1000);
-    gsl_integration_qag(&F, qt_min, Pt, 0, epsrel, 1000, 1, gsl_int_ws, &result, &error); //the upper integration limit is Pt
+    gsl_integration_qag(&F, qt_min, Pt*min_qt_to_Pt_ratio, 0, epsrel, 1000, 1, gsl_int_ws, &result, &error); //the upper integration limit is Pt
     gsl_integration_workspace_free (gsl_int_ws);
 
     return result;
@@ -700,8 +702,8 @@ DIS::DIS(double sqrtSin, int Ain):sqrtS(sqrtSin),A(Ain)
 {
     S = sqrtS*sqrtS;
 
-    ind_Q2 = 50; // The numerical integration of the x-sections cannot be done for all Q and W.
-    ind_W2 = 50; // Thus it will be only computed at ind_Q2xind_W2 points and then extrapolated between those.
+    ind_Q2 = 10; // The numerical integration of the x-sections cannot be done for all Q and W.
+    ind_W2 = 10; // Thus it will be only computed at ind_Q2xind_W2 points and then extrapolated between those.
 
     Xs_L = new double[ind_Q2*ind_W2]; //The matrices to be populated with the integrated x-section
     Xs_T = new double[ind_Q2*ind_W2];
