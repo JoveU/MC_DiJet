@@ -553,7 +553,9 @@ DiJetEvent::DiJetEvent(TMD* Xs): Xsection(Xs)
     Xsmax = - 2.0*s->fval ; //With Xsmax we can generate the events.
 
     //cerr << Xsmax << "\n";
+		gsl_vector_free(x);
 		gsl_vector_free(ss);
+		gsl_multimin_fminimizer_free (s);
 
     //Begin: Initialization of random number generators
     z_sample = new uniform_real_distribution<> ( z_min, z_max );
